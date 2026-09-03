@@ -1,0 +1,18 @@
+name: MiraBackpacks
+version: 0.1.0
+main: gg.mira.backpacks.MiraBackpacksPlugin
+api-version: '1.21'
+author: FiveSOCE
+commands:
+  backpack:
+    aliases: [bp]
+    description: Open your backpack
+    permission: mirabackpacks.use
+permissions:
+  mirabackpacks.use: {default: true}
+  mirabackpacks.inspect: {default: op}
+  mirabackpacks.size.18: {default: true}
+  mirabackpacks.size.27: {default: false}
+  mirabackpacks.size.36: {default: false}
+  mirabackpacks.size.45: {default: false}
+  mirabackpacks.size.54: {default: false}
