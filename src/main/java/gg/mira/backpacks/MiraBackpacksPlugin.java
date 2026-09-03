@@ -1,6 +1,7 @@
 package gg.mira.backpacks;
 
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.util.*;
 
 public final class MiraBackpacksPlugin extends JavaPlugin implements Listener {
+    private static final String PREFIX = "&5&lMira &8>> &r";
     private BackpackService service;
 
     @Override public void onEnable() {
@@ -31,9 +33,9 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener {
     @Override public void onDisable() { service.save(); getServer().getServicesManager().unregisterAll(this); }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) { sender.sendMessage("§cPlayers only."); return true; }
+        if (!(sender instanceof Player player)) { msg(sender, "&cPlayers only."); return true; }
         if (args.length >= 2 && args[0].equalsIgnoreCase("inspect")) {
-            if (!player.hasPermission("mirabackpacks.inspect")) { player.sendMessage("§cNo permission."); return true; }
+            if (!player.hasPermission("mirabackpacks.inspect")) { msg(player, "&cNo permission."); return true; }
             OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
             player.openInventory(service.createInventory(target.getUniqueId(), target.getName() == null ? args[1] : target.getName(), service.sizeFor(target.getPlayer())));
             return true;
@@ -45,6 +47,8 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener {
     @EventHandler public void onClose(InventoryCloseEvent event) {
         if (event.getInventory().getHolder() instanceof BackpackHolder holder) service.store(holder.owner(), event.getInventory().getContents());
     }
+
+    private void msg(CommandSender sender, String raw) { sender.sendMessage(ChatColor.translateAlternateColorCodes('&', PREFIX + raw)); }
 
     public interface BackpacksApi {
         int configuredSize(UUID player);
