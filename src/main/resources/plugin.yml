@@ -1,16 +1,20 @@
 name: MiraBackpacks
-version: 0.1.0
+version: 0.1.1
 main: gg.mira.backpacks.MiraBackpacksPlugin
 api-version: '1.21'
 author: FiveSOCE
+description: Persistent non-destructive player backpacks for the Mira ecosystem.
+depend: [MiraCore]
 commands:
   backpack:
     aliases: [bp]
-    description: Open your backpack
+    description: Open or administer backpacks
+    usage: /backpack [inspect|edit|status] [player]
     permission: mirabackpacks.use
 permissions:
   mirabackpacks.use: {default: true}
   mirabackpacks.inspect: {default: op}
+  mirabackpacks.edit: {default: op}
   mirabackpacks.size.18: {default: true}
   mirabackpacks.size.27: {default: false}
   mirabackpacks.size.36: {default: false}
