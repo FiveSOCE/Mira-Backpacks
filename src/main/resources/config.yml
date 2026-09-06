@@ -1,0 +1,25 @@
+tiers:
+  small:
+    name: "&7Small Backpack"
+    material: LEATHER
+    custom-model-data: 20001
+  medium:
+    name: "&aMedium Backpack"
+    material: LEATHER
+    custom-model-data: 20002
+  large:
+    name: "&bLarge Backpack"
+    material: LEATHER
+    custom-model-data: 20003
+  elite:
+    name: "&5Elite Backpack"
+    material: LEATHER
+    custom-model-data: 20004
+  mythic:
+    name: "&dMythic Backpack"
+    material: LEATHER
+    custom-model-data: 20005
+  godly:
+    name: "&6Godly Backpack"
+    material: LEATHER
+    custom-model-data: 20006
