@@ -66,6 +66,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         command.setTabCompleter(this);
 
         getServer().getScheduler().runTaskTimer(this, this::auditLoadedDuplicates, 100L, 100L);
+        getServer().getScheduler().runTaskTimer(this, this::enforceOffhandSessions, 1L, 1L);
         getLogger().info("MiraBackpacks v" + getPluginMeta().getVersion() + " enabled with " + service.recordCount() + " stored backpack(s).");
     }
 
@@ -164,10 +165,10 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
 
         if (editable) {
             if (!lock(id, player)) return true;
-            player.openInventory(service.inventory(id, AccessMode.EDITABLE));
+            player.openInventory(service.inventory(id, AccessMode.EDITABLE, false));
             audit(player, "BACKPACK_ADMIN_EDIT", id.toString(), Map.of("tier", record.tier().id()));
         } else {
-            player.openInventory(service.inventory(id, AccessMode.READ_ONLY));
+            player.openInventory(service.inventory(id, AccessMode.READ_ONLY, false));
             audit(player, "BACKPACK_ADMIN_INSPECT", id.toString(), Map.of("tier", record.tier().id()));
         }
         return true;
@@ -255,7 +256,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         }
         if (!lock(identity.id(), player)) return;
         service.ensureRecord(identity.id(), identity.tier());
-        player.openInventory(service.inventory(identity.id(), AccessMode.EDITABLE));
+        player.openInventory(service.inventory(identity.id(), AccessMode.EDITABLE, true));
     }
 
     private boolean lock(UUID id, Player viewer) {
@@ -343,6 +344,19 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
     private boolean containsBackpack(ItemStack[] contents) {
         for (ItemStack item : contents) if (service.isBackpack(item)) return true;
         return false;
+    }
+
+    private void enforceOffhandSessions() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof BackpackHolder holder)) continue;
+            if (!holder.requireOffhand() || holder.mode() == AccessMode.READ_ONLY) continue;
+
+            BackpackIdentity held = service.identify(player.getInventory().getItemInOffHand()).orElse(null);
+            if (held != null && held.id().equals(holder.id())) continue;
+
+            player.closeInventory();
+            msg(player, "&cKeep the backpack in your off hand to use it.");
+        }
     }
 
     private void auditLoadedDuplicates() {
@@ -469,7 +483,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
 
     public record BackpackRecord(UUID id, BackpackTier tier, ItemStack[] contents) { }
 
-    public record BackpackHolder(UUID id, BackpackTier tier, AccessMode mode) implements InventoryHolder {
+    public record BackpackHolder(UUID id, BackpackTier tier, AccessMode mode, boolean requireOffhand) implements InventoryHolder {
         @Override public Inventory getInventory() { return Bukkit.createInventory(this, tier.slots(), "Backpack"); }
     }
 
@@ -552,10 +566,10 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             });
         }
 
-        Inventory inventory(UUID id, AccessMode mode) {
+        Inventory inventory(UUID id, AccessMode mode, boolean requireOffhand) {
             BackpackRecord record = records.get(id);
             if (record == null) throw new IllegalArgumentException("Unknown backpack " + id);
-            BackpackHolder holder = new BackpackHolder(id, record.tier(), mode);
+            BackpackHolder holder = new BackpackHolder(id, record.tier(), mode, requireOffhand);
             Inventory inventory = Bukkit.createInventory(holder, record.tier().slots(),
                     "§8" + stripColors(record.tier().displayName()) + (mode == AccessMode.READ_ONLY ? " §7[View]" : ""));
             for (int i = 0; i < record.contents().length; i++) {
