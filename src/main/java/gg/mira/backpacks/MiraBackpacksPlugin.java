@@ -36,6 +36,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
     private BackpackService service;
     private NamespacedKey idKey;
     private NamespacedKey levelKey;
+    private NamespacedKey enchantBackpackKey;
     private final Map<UUID, UUID> activeEditors = new HashMap<>();
 
     @Override
@@ -43,6 +44,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         core = MiraCoreProvider.require();
         idKey = new NamespacedKey(this, "backpack_id");
         levelKey = new NamespacedKey(this, "backpack_level");
+        enchantBackpackKey = NamespacedKey.fromString("miraenchantments:enchant_backpack");
         service = new BackpackService(this);
 
         getServer().getServicesManager().register(BackpacksApi.class, service, this, ServicePriority.Normal);
@@ -105,7 +107,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         }
 
         ItemStack chestplate = player.getInventory().getChestplate();
-        BackpackIdentity identity = service.identify(chestplate).orElse(null);
+        BackpackIdentity identity = service.activeIdentity(chestplate).orElse(null);
         if (identity == null) {
             msg(player, "&cWear a chestplate with the Backpack enchant.");
             return;
@@ -279,7 +281,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof BackpackHolder holder)) continue;
             if (!holder.requireWorn()) continue;
 
-            BackpackIdentity current = service.identify(player.getInventory().getChestplate()).orElse(null);
+            BackpackIdentity current = service.activeIdentity(player.getInventory().getChestplate()).orElse(null);
             if (current != null && current.id().equals(holder.id())) continue;
 
             player.closeInventory();
@@ -367,6 +369,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
     public interface BackpacksApi {
         BackpackIdentity ensureLinked(ItemStack chestplate, int level);
         Optional<BackpackIdentity> identify(ItemStack item);
+        Optional<BackpackIdentity> activeIdentity(ItemStack item);
         int usedSlots(UUID backpackId);
         ItemStack[] contents(UUID backpackId);
         void setContents(UUID backpackId, ItemStack[] contents);
@@ -401,6 +404,22 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
             meta.getPersistentDataContainer().set(levelKey, PersistentDataType.INTEGER, Math.max(1, Math.min(6, level)));
             chestplate.setItemMeta(meta);
+        }
+
+        @Override
+        public Optional<BackpackIdentity> activeIdentity(ItemStack item) {
+            BackpackIdentity linked = identify(item).orElse(null);
+            if (linked == null || enchantBackpackKey == null || !item.hasItemMeta()) return Optional.empty();
+            Integer enchantLevel = item.getItemMeta().getPersistentDataContainer()
+                    .get(enchantBackpackKey, PersistentDataType.INTEGER);
+            if (enchantLevel == null || enchantLevel < 1) return Optional.empty();
+
+            int level = Math.max(1, Math.min(6, enchantLevel));
+            if (linked.level() != level) {
+                linkExisting(item, linked.id(), level);
+                ensureRecord(linked.id(), level);
+            }
+            return Optional.of(new BackpackIdentity(linked.id(), level));
         }
 
         @Override
