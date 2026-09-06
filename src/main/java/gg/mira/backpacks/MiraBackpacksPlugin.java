@@ -3,8 +3,6 @@ package gg.mira.backpacks;
 import com.mira.core.api.MiraCore;
 import com.mira.core.api.MiraCoreProvider;
 import com.mira.core.api.ModuleHealth;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -13,7 +11,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -21,8 +18,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -39,25 +34,22 @@ import java.util.*;
 public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, TabExecutor {
     private MiraCore core;
     private BackpackService service;
-    private NamespacedKey backpackKey;
     private NamespacedKey idKey;
-    private NamespacedKey tierKey;
+    private NamespacedKey levelKey;
     private final Map<UUID, UUID> activeEditors = new HashMap<>();
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
         core = MiraCoreProvider.require();
-        backpackKey = new NamespacedKey(this, "backpack");
         idKey = new NamespacedKey(this, "backpack_id");
-        tierKey = new NamespacedKey(this, "backpack_tier");
+        levelKey = new NamespacedKey(this, "backpack_level");
         service = new BackpackService(this);
 
         getServer().getServicesManager().register(BackpacksApi.class, service, this, ServicePriority.Normal);
         core.services().register(BackpacksApi.class, service);
         core.modules().register(this, "MiraBackpacks");
         core.modules().setHealth(this, ModuleHealth.HEALTHY,
-                "Unique physical backpack items, off-hand access and UUID storage ready");
+                "Chestplate-linked backpack UUID storage ready");
 
         getServer().getPluginManager().registerEvents(this, this);
         var command = getCommand("backpack");
@@ -65,8 +57,8 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         command.setExecutor(this);
         command.setTabCompleter(this);
 
+        getServer().getScheduler().runTaskTimer(this, this::enforceWornSessions, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, this::auditLoadedDuplicates, 100L, 100L);
-        getServer().getScheduler().runTaskTimer(this, this::enforceOffhandSessions, 1L, 1L);
         getLogger().info("MiraBackpacks v" + getPluginMeta().getVersion() + " enabled with " + service.recordCount() + " stored backpack(s).");
     }
 
@@ -89,57 +81,45 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
                 msg(sender, "&cPlayers only.");
                 return true;
             }
-            openHeld(player);
+            openWorn(player);
             return true;
         }
 
         String action = args[0].toLowerCase(Locale.ROOT);
         return switch (action) {
-            case "give" -> give(sender, args);
             case "inspect" -> inspect(sender, args, false);
             case "edit" -> inspect(sender, args, true);
             case "status" -> status(sender, args);
             case "recover" -> recover(sender, args);
-            case "reload" -> reload(sender);
             default -> {
-                msg(sender, "&e/backpack &7| &e/backpack give <player> <tier> [amount] &7| &e/backpack <inspect|edit|status> <uuid> &7| &e/backpack recover <uuid> <player>");
+                msg(sender, "&e/backpack &7| &e/backpack <inspect|edit|status> <uuid> &7| &e/backpack recover <uuid> <player>");
                 yield true;
             }
         };
     }
 
-    private boolean give(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("mirabackpacks.admin")) {
-            msg(sender, "&cNo permission.");
-            return true;
-        }
-        if (args.length < 3) {
-            msg(sender, "&eUsage: /backpack give <player> <small|medium|large|elite|mythic|godly> [amount]");
-            return true;
-        }
-        Player target = Bukkit.getPlayerExact(args[1]);
-        BackpackTier tier = BackpackTier.from(args[2]).orElse(null);
-        if (target == null || tier == null) {
-            msg(sender, "&cPlayer/tier not found.");
-            return true;
-        }
-        int amount = 1;
-        if (args.length >= 4) {
-            try { amount = Math.max(1, Math.min(64, Integer.parseInt(args[3]))); }
-            catch (NumberFormatException ex) {
-                msg(sender, "&cAmount must be 1-64.");
-                return true;
-            }
+    private void openWorn(Player player) {
+        if (!player.hasPermission("mirabackpacks.use")) {
+            msg(player, "&cNo permission.");
+            return;
         }
 
-        for (int i = 0; i < amount; i++) {
-            ItemStack backpack = service.create(tier);
-            Map<Integer, ItemStack> overflow = target.getInventory().addItem(backpack);
-            overflow.values().forEach(item -> target.getWorld().dropItemNaturally(target.getLocation(), item));
+        ItemStack chestplate = player.getInventory().getChestplate();
+        BackpackIdentity identity = service.identify(chestplate).orElse(null);
+        if (identity == null) {
+            msg(player, "&cWear a chestplate with the Backpack enchant.");
+            return;
         }
-        audit(sender, "BACKPACK_GIVEN", target.getUniqueId().toString(), Map.of("tier", tier.id(), "amount", Integer.toString(amount)));
-        msg(sender, "&aGave &f" + target.getName() + " &a" + amount + "x &f" + tier.displayName() + "&a.");
-        return true;
+
+        if (loadedInstances(identity.id()).size() > 1) {
+            audit(player, "BACKPACK_DUPLICATE_ACCESS_BLOCKED", identity.id().toString(), Map.of());
+            msg(player, "&cDuplicate backpack ID detected. Access blocked.");
+            return;
+        }
+
+        if (!lock(identity.id(), player)) return;
+        service.ensureRecord(identity.id(), identity.level());
+        player.openInventory(service.inventory(identity.id(), AccessMode.EDITABLE, true));
     }
 
     private boolean inspect(CommandSender sender, String[] args, boolean editable) {
@@ -154,9 +134,10 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         }
         UUID id = parseId(args, 1);
         if (id == null) {
-            msg(player, "&eUsage: /backpack " + (editable ? "edit" : "inspect") + " <backpack-uuid>");
+            msg(player, "&eUsage: /backpack " + (editable ? "edit" : "inspect") + " <uuid>");
             return true;
         }
+
         BackpackRecord record = service.record(id).orElse(null);
         if (record == null) {
             msg(player, "&cUnknown backpack UUID.");
@@ -166,10 +147,10 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         if (editable) {
             if (!lock(id, player)) return true;
             player.openInventory(service.inventory(id, AccessMode.EDITABLE, false));
-            audit(player, "BACKPACK_ADMIN_EDIT", id.toString(), Map.of("tier", record.tier().id()));
+            audit(player, "BACKPACK_ADMIN_EDIT", id.toString(), Map.of("level", Integer.toString(record.level())));
         } else {
             player.openInventory(service.inventory(id, AccessMode.READ_ONLY, false));
-            audit(player, "BACKPACK_ADMIN_INSPECT", id.toString(), Map.of("tier", record.tier().id()));
+            audit(player, "BACKPACK_ADMIN_INSPECT", id.toString(), Map.of("level", Integer.toString(record.level())));
         }
         return true;
     }
@@ -181,20 +162,19 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         }
         UUID id = parseId(args, 1);
         if (id == null) {
-            msg(sender, "&eUsage: /backpack status <backpack-uuid>");
+            msg(sender, "&eUsage: /backpack status <uuid>");
             return true;
         }
+
         BackpackRecord record = service.record(id).orElse(null);
         if (record == null) {
             msg(sender, "&cUnknown backpack UUID.");
             return true;
         }
-        int loaded = loadedInstances(id).size();
-        msg(sender, "&d" + record.tier().displayName() + " &7- &f" + id);
-        msg(sender, "&7Slots: &f" + record.tier().slots() + " &7Used: &f" + service.usedSlots(id)
-                + " &7Loaded physical copies: &f" + loaded);
-        UUID editor = activeEditors.get(id);
-        msg(sender, "&7Active editor: &f" + (editor == null ? "None" : Optional.ofNullable(Bukkit.getPlayer(editor)).map(Player::getName).orElse(editor.toString())));
+
+        msg(sender, "&dBackpack " + roman(record.level()) + " &7- &f" + id);
+        msg(sender, "&7Visible slots: &f" + slotsFor(record.level()) + " &7Stored slots: &f" + record.contents().length
+                + " &7Used: &f" + service.usedSlots(id) + " &7Loaded linked items: &f" + loadedInstances(id).size());
         return true;
     }
 
@@ -206,105 +186,68 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         UUID id = parseId(args, 1);
         Player target = args.length >= 3 ? Bukkit.getPlayerExact(args[2]) : null;
         if (id == null || target == null) {
-            msg(sender, "&eUsage: /backpack recover <backpack-uuid> <player>");
+            msg(sender, "&eUsage: /backpack recover <uuid> <player>");
             return true;
         }
+
         BackpackRecord record = service.record(id).orElse(null);
         if (record == null) {
             msg(sender, "&cUnknown backpack UUID.");
             return true;
         }
-        List<String> found = loadedInstances(id);
-        if (!found.isEmpty()) {
-            msg(sender, "&cRecovery blocked. A physical copy is already loaded: &f" + String.join(", ", found));
+        if (!loadedInstances(id).isEmpty()) {
+            msg(sender, "&cRecovery blocked. A linked chestplate is already loaded.");
             return true;
         }
 
-        ItemStack item = service.createExisting(id, record.tier());
-        Map<Integer, ItemStack> overflow = target.getInventory().addItem(item);
-        overflow.values().forEach(left -> target.getWorld().dropItemNaturally(target.getLocation(), left));
-        audit(sender, "BACKPACK_RECOVERED", id.toString(), Map.of("target", target.getUniqueId().toString(), "tier", record.tier().id()));
-        msg(sender, "&aRecovered backpack &f" + id + " &ato &f" + target.getName() + "&a.");
-        return true;
-    }
-
-    private boolean reload(CommandSender sender) {
-        if (!sender.hasPermission("mirabackpacks.admin")) {
-            msg(sender, "&cNo permission.");
+        ItemStack chestplate = target.getInventory().getChestplate();
+        if (!isChestplate(chestplate)) {
+            msg(sender, "&cTarget must be wearing a chestplate to recover onto.");
             return true;
         }
-        reloadConfig();
-        msg(sender, "&aMiraBackpacks config reloaded.");
-        return true;
-    }
+        if (service.identify(chestplate).isPresent()) {
+            msg(sender, "&cThat chestplate is already linked to a backpack.");
+            return true;
+        }
 
-    private void openHeld(Player player) {
-        if (!player.hasPermission("mirabackpacks.use")) {
-            msg(player, "&cNo permission.");
-            return;
-        }
-        ItemStack offhand = player.getInventory().getItemInOffHand();
-        BackpackIdentity identity = service.identify(offhand).orElse(null);
-        if (identity == null) {
-            msg(player, "&cHold a Mira backpack in your off hand.");
-            return;
-        }
-        if (loadedInstances(identity.id()).size() > 1) {
-            audit(player, "BACKPACK_DUPLICATE_ACCESS_BLOCKED", identity.id().toString(), Map.of());
-            msg(player, "&cDuplicate backpack ID detected. Access blocked. Contact staff.");
-            return;
-        }
-        if (!lock(identity.id(), player)) return;
-        service.ensureRecord(identity.id(), identity.tier());
-        player.openInventory(service.inventory(identity.id(), AccessMode.EDITABLE, true));
+        service.linkExisting(chestplate, id, record.level());
+        target.getInventory().setChestplate(chestplate);
+        audit(sender, "BACKPACK_RECOVERED", id.toString(), Map.of("target", target.getUniqueId().toString()));
+        msg(sender, "&aRecovered backpack UUID onto &f" + target.getName() + "&a's worn chestplate.");
+        return true;
     }
 
     private boolean lock(UUID id, Player viewer) {
         UUID existing = activeEditors.get(id);
         if (existing != null && !existing.equals(viewer.getUniqueId())) {
-            String name = Optional.ofNullable(Bukkit.getPlayer(existing)).map(Player::getName).orElse(existing.toString());
-            msg(viewer, "&cThat backpack is already open by &f" + name + "&c.");
+            msg(viewer, "&cThat backpack is already open.");
             return false;
         }
         activeEditors.put(id, viewer.getUniqueId());
         return true;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onInteract(PlayerInteractEvent event) {
-        if (event.getHand() != EquipmentSlot.OFF_HAND) return;
-        if (!event.getAction().isRightClick()) return;
-        if (service.identify(event.getItem()).isEmpty()) return;
-        event.setCancelled(true);
-        openHeld(event.getPlayer());
-    }
-
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder() instanceof BackpackHolder holder)) return;
-
         if (holder.mode() == AccessMode.READ_ONLY) {
             event.setCancelled(true);
             return;
         }
 
-        // A backpack can never be placed inside any Mira backpack.
-        int raw = event.getRawSlot();
         int topSize = event.getView().getTopInventory().getSize();
+        boolean intoTop = event.getRawSlot() >= 0 && event.getRawSlot() < topSize;
         ItemStack cursor = event.getCursor();
         ItemStack hotbar = event.getHotbarButton() >= 0 ? event.getWhoClicked().getInventory().getItem(event.getHotbarButton()) : null;
 
-        boolean intoTop = raw >= 0 && raw < topSize;
-        if (intoTop && (service.isBackpack(cursor) || service.isBackpack(hotbar))) {
+        if (intoTop && (service.identify(cursor).isPresent() || service.identify(hotbar).isPresent())) {
             event.setCancelled(true);
-            msg(event.getWhoClicked(), "&cBackpacks cannot be stored inside backpacks.");
+            msg(event.getWhoClicked(), "&cBackpack-linked chestplates cannot be stored inside backpacks.");
             return;
         }
-
-        // Shift-click from player inventory into backpack.
-        if (event.isShiftClick() && raw >= topSize && service.isBackpack(event.getCurrentItem())) {
+        if (event.isShiftClick() && event.getRawSlot() >= topSize && service.identify(event.getCurrentItem()).isPresent()) {
             event.setCancelled(true);
-            msg(event.getWhoClicked(), "&cBackpacks cannot be stored inside backpacks.");
+            msg(event.getWhoClicked(), "&cBackpack-linked chestplates cannot be stored inside backpacks.");
         }
     }
 
@@ -315,11 +258,11 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             event.setCancelled(true);
             return;
         }
-        if (!service.isBackpack(event.getOldCursor())) return;
+        if (service.identify(event.getOldCursor()).isEmpty()) return;
         int topSize = event.getView().getTopInventory().getSize();
         if (event.getRawSlots().stream().anyMatch(slot -> slot < topSize)) {
             event.setCancelled(true);
-            msg(event.getWhoClicked(), "&cBackpacks cannot be stored inside backpacks.");
+            msg(event.getWhoClicked(), "&cBackpack-linked chestplates cannot be stored inside backpacks.");
         }
     }
 
@@ -327,62 +270,35 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
     public void onClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder() instanceof BackpackHolder holder)) return;
         if (holder.mode() == AccessMode.READ_ONLY) return;
-
-        if (containsBackpack(event.getInventory().getContents())) {
-            // Defensive cleanup in case another plugin bypassed click/drag protections.
-            for (ItemStack item : event.getInventory().getContents()) {
-                if (service.isBackpack(item)) {
-                    event.getPlayer().getInventory().addItem(item).values()
-                            .forEach(left -> event.getPlayer().getWorld().dropItemNaturally(event.getPlayer().getLocation(), left));
-                }
-            }
-        }
         service.store(holder.id(), event.getInventory().getContents());
         activeEditors.remove(holder.id(), event.getPlayer().getUniqueId());
     }
 
-    private boolean containsBackpack(ItemStack[] contents) {
-        for (ItemStack item : contents) if (service.isBackpack(item)) return true;
-        return false;
-    }
-
-    private void enforceOffhandSessions() {
+    private void enforceWornSessions() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof BackpackHolder holder)) continue;
-            if (!holder.requireOffhand() || holder.mode() == AccessMode.READ_ONLY) continue;
+            if (!holder.requireWorn()) continue;
 
-            BackpackIdentity held = service.identify(player.getInventory().getItemInOffHand()).orElse(null);
-            if (held != null && held.id().equals(holder.id())) continue;
+            BackpackIdentity current = service.identify(player.getInventory().getChestplate()).orElse(null);
+            if (current != null && current.id().equals(holder.id())) continue;
 
             player.closeInventory();
-            msg(player, "&cKeep the backpack in your off hand to use it.");
+            msg(player, "&cKeep that Backpack chestplate equipped to use it.");
         }
     }
 
     private void auditLoadedDuplicates() {
-        Map<UUID, List<String>> seen = new HashMap<>();
-
+        Map<UUID, Integer> counts = new HashMap<>();
         for (Player player : Bukkit.getOnlinePlayers()) {
-            ItemStack[] contents = player.getInventory().getContents();
-            for (int slot = 0; slot < contents.length; slot++) {
-                BackpackIdentity id = service.identify(contents[slot]).orElse(null);
-                if (id == null) continue;
-                seen.computeIfAbsent(id.id(), ignored -> new ArrayList<>()).add("player " + player.getName() + " slot " + slot);
+            for (ItemStack item : player.getInventory().getContents()) {
+                BackpackIdentity identity = service.identify(item).orElse(null);
+                if (identity != null) counts.merge(identity.id(), 1, Integer::sum);
             }
         }
-        for (var world : Bukkit.getWorlds()) {
-            for (Item item : world.getEntitiesByClass(Item.class)) {
-                BackpackIdentity id = service.identify(item.getItemStack()).orElse(null);
-                if (id == null) continue;
-                seen.computeIfAbsent(id.id(), ignored -> new ArrayList<>()).add("ground " + world.getName() + " "
-                        + item.getLocation().getBlockX() + "," + item.getLocation().getBlockY() + "," + item.getLocation().getBlockZ());
-            }
-        }
-
-        for (Map.Entry<UUID, List<String>> entry : seen.entrySet()) {
-            if (entry.getValue().size() <= 1) continue;
+        for (Map.Entry<UUID, Integer> entry : counts.entrySet()) {
+            if (entry.getValue() <= 1) continue;
             core.audit().record("MiraBackpacks", "DUPLICATE_BACKPACK_ID", null, "SYSTEM", entry.getKey().toString(),
-                    "Duplicate physical backpack UUID detected", Map.of("locations", String.join(" | ", entry.getValue())));
+                    "Duplicate linked chestplate UUID detected", Map.of("count", Integer.toString(entry.getValue())));
         }
     }
 
@@ -391,17 +307,17 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         for (Player player : Bukkit.getOnlinePlayers()) {
             ItemStack[] contents = player.getInventory().getContents();
             for (int slot = 0; slot < contents.length; slot++) {
-                BackpackIdentity foundId = service.identify(contents[slot]).orElse(null);
-                if (foundId != null && foundId.id().equals(id)) found.add("player " + player.getName() + " slot " + slot);
-            }
-        }
-        for (var world : Bukkit.getWorlds()) {
-            for (Item item : world.getEntitiesByClass(Item.class)) {
-                BackpackIdentity foundId = service.identify(item.getItemStack()).orElse(null);
-                if (foundId != null && foundId.id().equals(id)) found.add("ground " + world.getName());
+                BackpackIdentity identity = service.identify(contents[slot]).orElse(null);
+                if (identity != null && identity.id().equals(id)) found.add(player.getName() + ":" + slot);
             }
         }
         return found;
+    }
+
+    private static boolean isChestplate(ItemStack item) {
+        if (item == null || item.getType().isAir()) return false;
+        String name = item.getType().name();
+        return name.endsWith("_CHESTPLATE") || item.getType() == Material.ELYTRA;
     }
 
     private UUID parseId(String[] args, int index) {
@@ -421,19 +337,11 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command,
                                       @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
-            List<String> values = new ArrayList<>();
-            if (sender.hasPermission("mirabackpacks.admin")) values.add("give");
-            if (sender.hasPermission("mirabackpacks.admin.inspect")) values.addAll(List.of("inspect", "status"));
-            if (sender.hasPermission("mirabackpacks.admin.edit")) values.add("edit");
-            if (sender.hasPermission("mirabackpacks.admin.recover")) values.add("recover");
-            if (sender.hasPermission("mirabackpacks.admin")) values.add("reload");
-            return complete(args[0], values);
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
-            return complete(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
-        }
-        if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
-            return complete(args[2], Arrays.stream(BackpackTier.values()).map(BackpackTier::id).toList());
+            List<String> out = new ArrayList<>();
+            if (sender.hasPermission("mirabackpacks.admin.inspect")) out.addAll(List.of("inspect", "status"));
+            if (sender.hasPermission("mirabackpacks.admin.edit")) out.add("edit");
+            if (sender.hasPermission("mirabackpacks.admin.recover")) out.add("recover");
+            return complete(args[0], out);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("recover")) {
             return complete(args[2], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
@@ -448,48 +356,17 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
 
     public enum AccessMode { EDITABLE, READ_ONLY }
 
-    public enum BackpackTier {
-        SMALL("small", "&7Small Backpack", 9, 20001),
-        MEDIUM("medium", "&aMedium Backpack", 18, 20002),
-        LARGE("large", "&bLarge Backpack", 27, 20003),
-        ELITE("elite", "&5Elite Backpack", 36, 20004),
-        MYTHIC("mythic", "&dMythic Backpack", 45, 20005),
-        GODLY("godly", "&6Godly Backpack", 54, 20006);
+    public record BackpackIdentity(UUID id, int level) { }
 
-        private final String id;
-        private final String displayName;
-        private final int slots;
-        private final int modelData;
+    public record BackpackRecord(UUID id, int level, ItemStack[] contents) { }
 
-        BackpackTier(String id, String displayName, int slots, int modelData) {
-            this.id = id;
-            this.displayName = displayName;
-            this.slots = slots;
-            this.modelData = modelData;
-        }
-
-        public String id() { return id; }
-        public String displayName() { return displayName; }
-        public int slots() { return slots; }
-        public int modelData() { return modelData; }
-
-        static Optional<BackpackTier> from(String raw) {
-            if (raw == null) return Optional.empty();
-            return Arrays.stream(values()).filter(t -> t.id.equalsIgnoreCase(raw) || t.name().equalsIgnoreCase(raw)).findFirst();
-        }
-    }
-
-    public record BackpackIdentity(UUID id, BackpackTier tier) { }
-
-    public record BackpackRecord(UUID id, BackpackTier tier, ItemStack[] contents) { }
-
-    public record BackpackHolder(UUID id, BackpackTier tier, AccessMode mode, boolean requireOffhand) implements InventoryHolder {
-        @Override public Inventory getInventory() { return Bukkit.createInventory(this, tier.slots(), "Backpack"); }
+    public record BackpackHolder(UUID id, int level, AccessMode mode, boolean requireWorn) implements InventoryHolder {
+        @Override public Inventory getInventory() { return Bukkit.createInventory(this, slotsFor(level), "Backpack"); }
     }
 
     public interface BackpacksApi {
+        BackpackIdentity ensureLinked(ItemStack chestplate, int level);
         Optional<BackpackIdentity> identify(ItemStack item);
-        ItemStack create(BackpackTier tier);
         int usedSlots(UUID backpackId);
         ItemStack[] contents(UUID backpackId);
         void setContents(UUID backpackId, ItemStack[] contents);
@@ -507,72 +384,58 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         int recordCount() { return records.size(); }
 
         @Override
-        public ItemStack create(BackpackTier tier) {
-            UUID id = UUID.randomUUID();
-            ensureRecord(id, tier);
+        public BackpackIdentity ensureLinked(ItemStack chestplate, int level) {
+            if (!isChestplate(chestplate)) throw new IllegalArgumentException("Backpack can only link chestplates");
+            int safeLevel = Math.max(1, Math.min(6, level));
+            BackpackIdentity existing = identify(chestplate).orElse(null);
+            UUID id = existing == null ? UUID.randomUUID() : existing.id();
+
+            linkExisting(chestplate, id, safeLevel);
+            ensureRecord(id, safeLevel);
             save();
-            return createExisting(id, tier);
+            return new BackpackIdentity(id, safeLevel);
         }
 
-        ItemStack createExisting(UUID id, BackpackTier tier) {
-            Material material = materialFor(tier);
-            ItemStack item = new ItemStack(material);
-            ItemMeta meta = item.getItemMeta();
-            meta.displayName(core.messages().parse(displayFor(tier)).decoration(TextDecoration.ITALIC, false));
-            List<Component> lore = List.of(
-                    core.messages().parse("&7" + tier.slots() + " storage slots").decoration(TextDecoration.ITALIC, false),
-                    core.messages().parse("&7Place in your off hand to use.").decoration(TextDecoration.ITALIC, false),
-                    core.messages().parse("&8ID: " + id).decoration(TextDecoration.ITALIC, false)
-            );
-            meta.lore(lore);
-            meta.setCustomModelData(modelDataFor(tier));
-            meta.getPersistentDataContainer().set(backpackKey, PersistentDataType.BYTE, (byte) 1);
+        void linkExisting(ItemStack chestplate, UUID id, int level) {
+            ItemMeta meta = chestplate.getItemMeta();
             meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
-            meta.getPersistentDataContainer().set(tierKey, PersistentDataType.STRING, tier.id());
-            item.setItemMeta(meta);
-            return item;
+            meta.getPersistentDataContainer().set(levelKey, PersistentDataType.INTEGER, Math.max(1, Math.min(6, level)));
+            chestplate.setItemMeta(meta);
         }
 
         @Override
         public Optional<BackpackIdentity> identify(ItemStack item) {
             if (item == null || item.getType().isAir() || !item.hasItemMeta()) return Optional.empty();
-            ItemMeta meta = item.getItemMeta();
-            Byte marker = meta.getPersistentDataContainer().get(backpackKey, PersistentDataType.BYTE);
-            String idText = meta.getPersistentDataContainer().get(idKey, PersistentDataType.STRING);
-            String tierText = meta.getPersistentDataContainer().get(tierKey, PersistentDataType.STRING);
-            if (marker == null || marker != (byte) 1 || idText == null || tierText == null) return Optional.empty();
-            try {
-                UUID id = UUID.fromString(idText);
-                BackpackTier tier = BackpackTier.from(tierText).orElse(null);
-                return tier == null ? Optional.empty() : Optional.of(new BackpackIdentity(id, tier));
-            } catch (IllegalArgumentException ex) {
-                return Optional.empty();
-            }
+            String idText = item.getItemMeta().getPersistentDataContainer().get(idKey, PersistentDataType.STRING);
+            Integer level = item.getItemMeta().getPersistentDataContainer().get(levelKey, PersistentDataType.INTEGER);
+            if (idText == null || level == null || level < 1 || level > 6) return Optional.empty();
+            try { return Optional.of(new BackpackIdentity(UUID.fromString(idText), level)); }
+            catch (IllegalArgumentException ex) { return Optional.empty(); }
         }
-
-        boolean isBackpack(ItemStack item) { return identify(item).isPresent(); }
 
         Optional<BackpackRecord> record(UUID id) { return Optional.ofNullable(records.get(id)); }
 
-        void ensureRecord(UUID id, BackpackTier tier) {
-            records.compute(id, (ignored, existing) -> {
-                if (existing == null) return new BackpackRecord(id, tier, new ItemStack[tier.slots()]);
-                if (existing.tier() == tier && existing.contents().length == tier.slots()) return existing;
-                ItemStack[] resized = new ItemStack[tier.slots()];
-                for (int i = 0; i < Math.min(existing.contents().length, resized.length); i++) {
-                    resized[i] = existing.contents()[i] == null ? null : existing.contents()[i].clone();
-                }
-                return new BackpackRecord(id, tier, resized);
+        void ensureRecord(UUID id, int level) {
+            int safeLevel = Math.max(1, Math.min(6, level));
+            int visible = slotsFor(safeLevel);
+            records.compute(id, (ignored, current) -> {
+                if (current == null) return new BackpackRecord(id, safeLevel, new ItemStack[visible]);
+
+                int historicalSize = Math.max(current.contents().length, visible);
+                ItemStack[] contents = cloneArray(current.contents(), historicalSize);
+                return new BackpackRecord(id, safeLevel, contents);
             });
         }
 
-        Inventory inventory(UUID id, AccessMode mode, boolean requireOffhand) {
+        Inventory inventory(UUID id, AccessMode mode, boolean requireWorn) {
             BackpackRecord record = records.get(id);
             if (record == null) throw new IllegalArgumentException("Unknown backpack " + id);
-            BackpackHolder holder = new BackpackHolder(id, record.tier(), mode, requireOffhand);
-            Inventory inventory = Bukkit.createInventory(holder, record.tier().slots(),
-                    "§8" + stripColors(record.tier().displayName()) + (mode == AccessMode.READ_ONLY ? " §7[View]" : ""));
-            for (int i = 0; i < record.contents().length; i++) {
+            int visible = slotsFor(record.level());
+            BackpackHolder holder = new BackpackHolder(id, record.level(), mode, requireWorn);
+            Inventory inventory = Bukkit.createInventory(holder, visible,
+                    "§8Backpack " + roman(record.level()) + (mode == AccessMode.READ_ONLY ? " §7[View]" : ""));
+
+            for (int i = 0; i < Math.min(visible, record.contents().length); i++) {
                 ItemStack item = record.contents()[i];
                 if (item != null) inventory.setItem(i, item.clone());
             }
@@ -580,14 +443,16 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         }
 
         synchronized void store(UUID id, ItemStack[] visible) {
-            BackpackRecord existing = records.get(id);
-            if (existing == null) return;
-            ItemStack[] clean = new ItemStack[existing.tier().slots()];
-            for (int i = 0; i < Math.min(clean.length, visible.length); i++) {
+            BackpackRecord current = records.get(id);
+            if (current == null) return;
+
+            int size = Math.max(current.contents().length, visible.length);
+            ItemStack[] contents = cloneArray(current.contents(), size);
+            for (int i = 0; i < visible.length; i++) {
                 ItemStack item = visible[i];
-                clean[i] = isBackpack(item) ? null : (item == null ? null : item.clone());
+                contents[i] = identify(item).isPresent() ? null : (item == null ? null : item.clone());
             }
-            records.put(id, new BackpackRecord(id, existing.tier(), clean));
+            records.put(id, new BackpackRecord(id, current.level(), contents));
             save();
         }
 
@@ -603,21 +468,21 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
         @Override
         public ItemStack[] contents(UUID backpackId) {
             BackpackRecord record = records.get(backpackId);
-            if (record == null) return new ItemStack[0];
-            return cloneArray(record.contents());
+            return record == null ? new ItemStack[0] : cloneArray(record.contents(), record.contents().length);
         }
 
         @Override
         public synchronized void setContents(UUID backpackId, ItemStack[] contents) {
-            BackpackRecord existing = records.get(backpackId);
-            if (existing == null) throw new IllegalArgumentException("Unknown backpack");
-            ItemStack[] clean = new ItemStack[existing.tier().slots()];
-            for (int i = 0; i < Math.min(clean.length, contents == null ? 0 : contents.length); i++) {
-                ItemStack item = contents[i];
-                if (isBackpack(item)) throw new IllegalArgumentException("Backpack nesting is not allowed");
+            BackpackRecord current = records.get(backpackId);
+            if (current == null) throw new IllegalArgumentException("Unknown backpack");
+            int size = Math.max(current.contents().length, contents == null ? 0 : contents.length);
+            ItemStack[] clean = new ItemStack[size];
+            for (int i = 0; i < size; i++) {
+                ItemStack item = contents != null && i < contents.length ? contents[i] : null;
+                if (identify(item).isPresent()) throw new IllegalArgumentException("Backpack nesting is not allowed");
                 clean[i] = item == null ? null : item.clone();
             }
-            records.put(backpackId, new BackpackRecord(backpackId, existing.tier(), clean));
+            records.put(backpackId, new BackpackRecord(backpackId, current.level(), clean));
             save();
         }
 
@@ -629,14 +494,14 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             for (String key : root.getKeys(false)) {
                 try {
                     UUID id = UUID.fromString(key);
-                    BackpackTier tier = BackpackTier.from(yaml.getString("backpacks." + key + ".tier", "")).orElse(null);
-                    if (tier == null) continue;
+                    int level = Math.max(1, Math.min(6, yaml.getInt("backpacks." + key + ".level", 1)));
                     List<?> raw = yaml.getList("backpacks." + key + ".items", List.of());
-                    ItemStack[] contents = new ItemStack[tier.slots()];
-                    for (int i = 0; i < Math.min(raw.size(), contents.length); i++) {
-                        if (raw.get(i) instanceof ItemStack stack && !isBackpack(stack)) contents[i] = stack.clone();
+                    int size = Math.max(slotsFor(level), raw.size());
+                    ItemStack[] contents = new ItemStack[size];
+                    for (int i = 0; i < raw.size(); i++) {
+                        if (raw.get(i) instanceof ItemStack stack && identify(stack).isEmpty()) contents[i] = stack.clone();
                     }
-                    records.put(id, new BackpackRecord(id, tier, contents));
+                    records.put(id, new BackpackRecord(id, level, contents));
                 } catch (IllegalArgumentException ignored) { }
             }
         }
@@ -645,35 +510,29 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
             YamlConfiguration yaml = new YamlConfiguration();
             for (BackpackRecord record : records.values()) {
                 String path = "backpacks." + record.id();
-                yaml.set(path + ".tier", record.tier().id());
-                yaml.set(path + ".items", Arrays.asList(cloneArray(record.contents())));
+                yaml.set(path + ".level", record.level());
+                yaml.set(path + ".items", Arrays.asList(cloneArray(record.contents(), record.contents().length)));
             }
             try { yaml.save(file); }
             catch (IOException ex) { getLogger().severe("Could not save backpacks.yml: " + ex.getMessage()); }
         }
 
-        private ItemStack[] cloneArray(ItemStack[] source) {
-            ItemStack[] copy = new ItemStack[source.length];
-            for (int i = 0; i < source.length; i++) copy[i] = source[i] == null ? null : source[i].clone();
+        private ItemStack[] cloneArray(ItemStack[] source, int size) {
+            ItemStack[] copy = new ItemStack[size];
+            for (int i = 0; i < Math.min(source.length, size); i++) copy[i] = source[i] == null ? null : source[i].clone();
             return copy;
         }
+    }
 
-        private Material materialFor(BackpackTier tier) {
-            return Material.matchMaterial(getConfig().getString("tiers." + tier.id() + ".material", "LEATHER")) == null
-                    ? Material.LEATHER
-                    : Material.matchMaterial(getConfig().getString("tiers." + tier.id() + ".material", "LEATHER"));
-        }
+    public static int slotsFor(int level) {
+        return Math.max(1, Math.min(6, level)) * 9;
+    }
 
-        private int modelDataFor(BackpackTier tier) {
-            return getConfig().getInt("tiers." + tier.id() + ".custom-model-data", tier.modelData());
-        }
-
-        private String displayFor(BackpackTier tier) {
-            return getConfig().getString("tiers." + tier.id() + ".name", tier.displayName());
-        }
-
-        private String stripColors(String input) {
-            return input == null ? "Backpack" : input.replaceAll("(?i)&[0-9A-FK-ORX]", "");
-        }
+    private static String roman(int level) {
+        return switch (level) {
+            case 1 -> "I"; case 2 -> "II"; case 3 -> "III";
+            case 4 -> "IV"; case 5 -> "V"; case 6 -> "VI";
+            default -> Integer.toString(level);
+        };
     }
 }
