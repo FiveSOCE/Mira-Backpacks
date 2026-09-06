@@ -1,64 +1,101 @@
 # MiraBackpacks
 
-MiraBackpacks provides persistent personal storage for the Mira Paper server suite. Each player receives a backpack inventory with permission-based capacity, non-destructive persistence and audited staff inspection/editing.
+MiraBackpacks provides unique physical backpack items for the Mira Paper server suite.
+
+Every backpack is its own persistent object with a permanent UUID. Storage belongs to the backpack item, not to a player account. Whoever physically possesses the backpack can use the same stored contents.
 
 ## Download
 
-[**Download MiraBackpacks v0.1.1**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.1.1/MiraBackpacks-0.1.1.jar)
+[**Download MiraBackpacks v0.2.0**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.2.0/MiraBackpacks-0.2.0.jar)
 
-[View All Releases](https://github.com/FiveSOCE/Mira-Backpacks/releases)
+SHA-256: `f27499a601ad4bd5796252bc0792aa61eb3b16488bbf146feb66fb7d7e3e47fa`
 
-## Requirements / Dependencies
+## Requirements
 
 - Paper 1.21.11
 - Java 21
-- MiraCore 0.2.0 or newer
+- MiraCore 0.5.1+
 
-## How MiraBackpacks Works
+## Physical backpack model
 
-Each player has persistent virtual backpack storage. Exact Bukkit ItemStacks are cloned and serialized, preserving material, amount, display name, lore, enchantments, PDC, custom model data and other metadata.
+Each backpack item stores MiraBackpacks PDC identity:
 
-Supported permission tiers are 18, 27, 36, 45 and 54 slots. v0.1.1 deliberately makes backpack capacity non-destructive: once stored capacity is larger than a player's current permission tier, opening the backpack never silently truncates hidden slots. A rank/permission downgrade therefore cannot destroy items. Visible saves merge back into the existing backing array rather than replacing unseen tail slots.
+- backpack marker
+- permanent backpack UUID
+- backpack tier
 
-Only one editable session may exist for a backpack at a time. This prevents the owner and an administrator from opening competing writable copies and overwriting each other's changes. Staff inspection is read-only; explicit staff editing uses a separate audited command.
+The item must remain in the player's off hand while the backpack is open. Removing or swapping it closes the session.
+
+Backpack storage is persisted by backpack UUID in `plugins/MiraBackpacks/backpacks.yml`.
+
+There is no permanent owner binding. Possession is ownership:
+
+- a backpack drops naturally with normal player death loot
+- another player may pick it up
+- that player can then open the same backpack
+- its original contents follow the backpack UUID
+
+## Tiers
+
+| Tier | Slots | Default CustomModelData |
+| --- | ---: | ---: |
+| Small | 9 | 20001 |
+| Medium | 18 | 20002 |
+| Large | 27 | 20003 |
+| Elite | 36 | 20004 |
+| Mythic | 45 | 20005 |
+| Godly | 54 | 20006 |
+
+The base item defaults to `LEATHER`. Material, display name and model data are configurable per tier in `config.yml`.
+
+CustomModelData is cosmetic only. Real backpack identity comes from PDC.
+
+## Access
+
+- Put the backpack in the off hand.
+- Right-click with the off hand backpack, or run `/backpack`.
+- The same backpack must remain in the off hand while the inventory is open.
+- Staff UUID edit sessions are exempt from the off-hand requirement.
+
+## Safety
+
+- Backpacks cannot be stored inside backpacks.
+- Click, shift-click and drag nesting attempts are blocked.
+- Defensive save logic strips nested backpacks if another plugin bypasses normal inventory events.
+- Only one editable session can exist for a backpack UUID at a time.
+- Duplicate loaded backpack UUIDs are audited through MiraCore.
+- Normal player access is blocked when multiple loaded physical copies of the same UUID are detected.
+- Recovery refuses to recreate a backpack while another matching physical instance is visible in loaded player inventories or as a loaded dropped item.
 
 ## Commands
 
-| Command | Permission | What it does |
+| Command | Permission | Purpose |
 | --- | --- | --- |
-| `/backpack` | `mirabackpacks.use` | Opens your personal editable backpack. |
-| `/bp` | `mirabackpacks.use` | Alias for `/backpack`. |
-| `/backpack inspect <player>` | `mirabackpacks.inspect` | Opens a read-only view of another player's backpack. |
-| `/backpack edit <player>` | `mirabackpacks.edit` | Opens an audited editable staff session for another player's backpack. |
-| `/backpack status <player>` | `mirabackpacks.inspect` | Shows capacity, used slots, persisted size and active editor state. |
+| `/backpack` | `mirabackpacks.use` | Opens the valid backpack currently in your off hand. |
+| `/bp` | `mirabackpacks.use` | Alias. |
+| `/backpack give <player> <tier> [amount]` | `mirabackpacks.admin` | Creates brand new backpacks with unique UUIDs. |
+| `/backpack inspect <uuid>` | `mirabackpacks.admin.inspect` | Read-only storage inspection. |
+| `/backpack edit <uuid>` | `mirabackpacks.admin.edit` | Audited UUID storage edit. |
+| `/backpack status <uuid>` | `mirabackpacks.admin.inspect` | Shows tier, capacity, usage, loaded copies and active editor. |
+| `/backpack recover <uuid> <player>` | `mirabackpacks.admin.recover` | Recreates a stored backpack only when no loaded physical copy is detected. |
+| `/backpack reload` | `mirabackpacks.admin` | Reloads tier/model configuration. |
 
-## Permissions
+## Resource-pack integration
 
-| Permission | Default | What it does |
-| --- | --- | --- |
-| `mirabackpacks.use` | Everyone | Allows opening your backpack. |
-| `mirabackpacks.inspect` | OP | Allows read-only inspection/status. |
-| `mirabackpacks.edit` | OP | Allows audited editing of another player's backpack. |
-| `mirabackpacks.size.18` | Everyone | Grants an 18-slot backpack tier. |
-| `mirabackpacks.size.27` | No | Grants a 27-slot backpack tier. |
-| `mirabackpacks.size.36` | No | Grants a 36-slot backpack tier. |
-| `mirabackpacks.size.45` | No | Grants a 45-slot backpack tier. |
-| `mirabackpacks.size.54` | No | Grants a 54-slot backpack tier. |
+The plugin already emits tier-specific CustomModelData IDs. A resource pack can assign a different backpack model to each tier without changing ordinary leather.
 
-## API / Integration
+Normal leather has no Mira backpack PDC and no Mira model ID, so it remains ordinary leather. MiraBackpacks functionality never trusts CustomModelData as item identity.
 
-`BackpacksApi` is registered through Bukkit ServicesManager and MiraCore. It exposes configured capacity, used slots and defensive-copy content read/write methods. Integrations should use this API instead of reading `backpacks.yml` directly.
+## API
 
-Administrative inspection/edit actions are recorded in MiraCore audit history.
+`BackpacksApi` is registered through Bukkit ServicesManager and MiraCore. It supports:
 
-## Persistence
+- backpack identification
+- creation
+- used-slot lookup
+- defensive content reads
+- content writes with anti-nesting validation
 
-Storage is saved to `plugins/MiraBackpacks/backpacks.yml`. ItemStack serialization preserves custom Mira item metadata, including PDC.
+## Release status
 
-## Building
-
-```bash
-gradle clean build
-```
-
-The output JAR is created in `build/libs/`.
+v0.2.0 passed repository CI and the GitHub release asset has been verified. Server behavior still requires real Paper 1.21.11 gameplay testing before being considered server-confirmed.
