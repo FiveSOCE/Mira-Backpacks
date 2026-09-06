@@ -2,7 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'release/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -22,24 +24,36 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10'
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' build.gradle.kts | head -n1)
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build
         run: gradle clean build --stacktrace
+
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: MiraBackpacks-0.1.1
-          path: build/libs/MiraBackpacks-0.1.1.jar
+          name: MiraBackpacks-${{ steps.version.outputs.version }}
+          path: build/libs/MiraBackpacks-${{ steps.version.outputs.version }}.jar
           if-no-files-found: error
 
-      - name: Publish v0.1.1 release if missing
-        if: github.event_name != 'pull_request'
+      - name: Publish release branch
+        if: success() && startsWith(github.ref, 'refs/heads/release/')
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ! gh release view v0.1.1 >/dev/null 2>&1; then
-            gh release create v0.1.1 \
-              build/libs/MiraBackpacks-0.1.1.jar \
+          TAG="v$VERSION"
+          JAR="build/libs/MiraBackpacks-$VERSION.jar"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" "$JAR" \
               --target "${{ github.sha }}" \
-              --title "MiraBackpacks v0.1.1" \
-              --notes "Adds non-destructive backpack capacity, single-writer storage sessions, read-only staff inspection, audited staff editing, MiraCore integration and defensive ItemStack/PDC preservation."
+              --title "MiraBackpacks $TAG" \
+              --notes "Rebuilds MiraBackpacks around unique physical backpack items. Every backpack has a permanent UUID and tier, must be held in the off hand to use, keeps its storage when dropped or looted, blocks backpack nesting, audits duplicate UUIDs, and adds admin give/inspect/edit/status/recovery tooling."
           fi
