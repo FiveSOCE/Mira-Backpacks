@@ -55,5 +55,5 @@ jobs:
             gh release create "$TAG" "$JAR" \
               --target "${{ github.sha }}" \
               --title "MiraBackpacks $TAG" \
-              --notes "Pivots MiraBackpacks to enchant-driven chestplate storage. MiraBackpacks owns permanent backpack UUIDs, persistence, /backpack access, anti-duplication, anti-nesting, admin inspection/edit/recovery, and non-destructive capacity. Backpack enchant levels map to 9/18/27/36/45/54 visible slots while storage follows the linked chestplate UUID through death, drops and looting."
+              --notes "Requires the actual MiraEnchantments Backpack enchant to be active before player /backpack access while preserving the permanent chestplate-linked backpack UUID if the enchant is later removed. Also keeps non-destructive level-based storage, duplication safeguards, and admin recovery tooling from 0.3.0."
           fi
