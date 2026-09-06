@@ -4,15 +4,15 @@ import java.security.MessageDigest
 plugins { java }
 
 group = "gg.mira"
-version = "0.1.1"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
 }
 
-val miraCoreVersion = "0.2.0"
-val miraCoreSha256 = "66433a266a76088d2a2de90ac1beb1a5a183c26891ee8f394827b47830195b03"
+val miraCoreVersion = "0.5.1"
+val miraCoreSha256 = "da63887ea952e74eb9ee3f78a2237b0ef6bcad1a52c1a5a313ab14767b095aa8"
 val miraCoreJar = layout.projectDirectory.file("libs/MiraCore-$miraCoreVersion.jar").asFile
 
 fun sha256(file: File): String {
@@ -45,3 +45,10 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.jar { archiveFileName.set("MiraBackpacks-${project.version}.jar") }
+
+
+tasks.processResources {
+    filesMatching("plugin.yml") {
+        expand("version" to project.version)
+    }
+}
