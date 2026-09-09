@@ -1,12 +1,14 @@
 # MiraBackpacks
 
-MiraBackpacks is the storage and identity backend for the MiraEnchantments **Backpack** chestplate enchant.
-
 ## Download
 
-[**Download MiraBackpacks v0.3.1**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.3.2/MiraBackpacks-0.3.2.jar)
+**Latest compatibility release: v0.3.2**
 
-SHA-256: `c6249ac84cf60997376ee37a60e463017dfc12359cd9bb4d9e51df6c28ba8e5b`
+[**Download MiraBackpacks-0.3.2.jar**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.3.2/MiraBackpacks-0.3.2.jar)
+
+[View all releases](https://github.com/FiveSOCE/Mira-Backpacks/releases)
+
+MiraBackpacks is the storage and identity backend for the MiraEnchantments **Backpack** chestplate enchant.
 
 ## Requirements
 
