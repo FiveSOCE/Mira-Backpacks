@@ -4,7 +4,7 @@ MiraBackpacks is the storage and identity backend for the MiraEnchantments **Bac
 
 ## Download
 
-[**Download MiraBackpacks v0.3.1**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.3.1/MiraBackpacks-0.3.1.jar)
+[**Download MiraBackpacks v0.3.1**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.3.2/MiraBackpacks-0.3.2.jar)
 
 SHA-256: `c6249ac84cf60997376ee37a60e463017dfc12359cd9bb4d9e51df6c28ba8e5b`
 
