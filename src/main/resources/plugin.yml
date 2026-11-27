@@ -1,7 +1,7 @@
 name: MiraBackpacks
 version: ${version}
 main: gg.mira.backpacks.MiraBackpacksPlugin
-api-version: '1.21'
+api-version: '1.18'
 author: FiveSOCE
 description: Chestplate-linked persistent backpack storage for the Mira ecosystem.
 depend: [MiraCore]
