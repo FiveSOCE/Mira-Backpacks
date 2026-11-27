@@ -1,21 +1,33 @@
 # MiraBackpacks
 
-## Download
+MiraBackpacks is the permanent chestplate-linked inventory backend used by the MiraEnchantments **Backpack** enchant. Each qualifying chestplate owns its own UUID-backed, persistent storage, with six capacity levels, duplicate safety, read-only staff inspection and audited recovery.
 
-**Latest compatibility release: v0.3.2**
+## Versioned JAR downloads
 
-[**Download MiraBackpacks-0.3.2.jar**](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/v0.3.2/MiraBackpacks-0.3.2.jar)
+| Paper server target | Java | Final JAR | Direct asset |
+| --- | --- | --- | --- |
+| **1.18.2** | 17 | `MiraBackpacks_1.18.2.jar` | [Legacy JAR](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/dev-1.18.2/MiraBackpacks_1.18.2.jar) |
+| **1.21.11–26.2** | 21 baseline; modern server may require Java 25 | `MiraBackpacks_1.21.11-26.2.jar` | [Modern JAR](https://github.com/FiveSOCE/Mira-Backpacks/releases/download/compat-modern-1.21.11-26.2/MiraBackpacks_1.21.11-26.2.jar) |
 
-[View all releases](https://github.com/FiveSOCE/Mira-Backpacks/releases)
+Download links become usable once the corresponding CI run succeeds and publishes the release asset. **Paper 1.19–1.21.10 and in-game feature parity have not been certified.** The server must use the matching version of MiraCore and should not load both Backpacks JARs simultaneously.
 
-MiraBackpacks is the storage and identity backend for the MiraEnchantments **Backpack** chestplate enchant.
+[Legacy source](https://github.com/FiveSOCE/Mira-Backpacks/tree/compat/1.18.2) · [Modern source](https://github.com/FiveSOCE/Mira-Backpacks) · [All releases](https://github.com/FiveSOCE/Mira-Backpacks/releases)
 
-## Requirements
+## Dependencies
 
-- Paper 1.21.11
-- Java 21
-- MiraCore 0.5.1+
-- Designed to be paired with MiraEnchantments 0.4.9+
+- **Required:** MiraCore, compatible with the selected Paper version.
+- **Required to make Backpack-enchanted chestplates:** MiraEnchantments, with a matching API version. Backpacks can compile independently, but normal player use depends on the enchant integration.
+- **Paper:** 1.18.2 for the legacy JAR, or modern 1.21.11–26.2 as the validated build target.
+- **Runtime:** Java 17 for legacy or Java 21+ as required by the modern server.
+
+## Permissions
+
+| Node | Default | Purpose |
+| --- | --- | --- |
+| `mirabackpacks.use` | Everyone | Open personal equipped Backpack storage |
+| `mirabackpacks.admin.inspect` | OP | Inspect and view storage state |
+| `mirabackpacks.admin.edit` | OP | Edit backpack storage by UUID |
+| `mirabackpacks.admin.recover` | OP | Recover orphaned backpack identity |
 
 ## Architecture
 
