@@ -61,7 +61,7 @@ public final class MiraBackpacksPlugin extends JavaPlugin implements Listener, T
 
         getServer().getScheduler().runTaskTimer(this, this::enforceWornSessions, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, this::auditLoadedDuplicates, 100L, 100L);
-        getLogger().info("MiraBackpacks v" + getPluginMeta().getVersion() + " enabled with " + service.recordCount() + " stored backpack(s).");
+        getLogger().info("MiraBackpacks v" + getDescription().getVersion() + " enabled with " + service.recordCount() + " stored backpack(s).");
     }
 
     @Override
