@@ -53,16 +53,16 @@ jobs:
       - run: gradle clean test build -PpaperApiVersion=1.21.11-R0.1-SNAPSHOT -PcompileJavaVersion=21 -PbytecodeJavaVersion=21 --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: MiraBackpacks-0.3.2
-          path: build/libs/MiraBackpacks-0.3.2.jar
+          name: MiraBackpacks_1.21.11-26.2
+          path: build/libs/MiraBackpacks_1.21.11-26.2.jar
           if-no-files-found: error
       - name: Publish release
         if: success() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.3.2"
-          JAR="build/libs/MiraBackpacks-0.3.2.jar"
+          TAG="compat-modern-1.21.11-26.2"
+          JAR="build/libs/MiraBackpacks_1.21.11-26.2.jar"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
