@@ -48,7 +48,7 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(bytecodeJavaVersion.get())
 }
 
-tasks.jar { archiveFileName.set("MiraBackpacks-${project.version}.jar") }
+tasks.jar { archiveFileName.set("MiraBackpacks_1.21.11-26.2.jar") }
 
 
 tasks.processResources {
